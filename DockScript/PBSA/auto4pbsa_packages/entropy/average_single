@@ -1,0 +1,6 @@
+grep PBTOT < delta_E_statistics.out |sed '1d' > x
+sed -e '1,2d' ds.out |awk 'NF==7' |awk -f ds1.awk > ts.out
+#awk '{s1+=$4;s2+=$4^2}END{x=s1/NR;print "-TS","             ",x,"   ",sqrt((s2+NR*x^2-2*s1*x)/(NR-1))}' ts.out >> x
+awk '{s1+=$4;s2+=$4^2}END{x=s1/NR;print "-TS","             ",x,"   "}' ts.out>> x
+cat x > delta_g.out
+awk '{a+=$2;b+=$3}END{print "GTOT","             " a,"   ",b/2}' x >> delta_g.out

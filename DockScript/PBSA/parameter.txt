@@ -1,0 +1,21 @@
+########this file is used to specify the parameters#############
+######Write by Wu Fengxu########################################
+
+#########1.specify the complex file########################
+complex       COMPLEX.pdb          #default: COM.pdb
+
+#########2.specify the ligand name########################
+ligand_name      LIG            #default: LIG
+
+
+#########3. minimazation options##############################
+minimazation     YES            #default: YES      you can choose NO 
+
+#########4.output directory##################################
+directory       ./snapshot/      #default: ./snapshot/
+
+#########5.mm_pbsa.in locations#############################
+mm_pbsa         /yp_home/public/ccb/server/ACID/DockScript/PBSA/auto4pbsa_packages/mm_pbsa.in
+
+#########6.entropy calculation file locations##############
+entropy         /yp_home/public/ccb/server/ACID/DockScript/PBSA/auto4pbsa_packages/entropy/ 

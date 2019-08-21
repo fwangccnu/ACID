@@ -1,0 +1,134 @@
+#!/usr/bin/python
+##############sys.argv[1] is the parameter_file#####################################
+##############Example : python parameter.txt###################################################################################
+import os
+import sys
+import shutil
+sys.path.insert(0,'./auto4pbsa_packages')
+from auto4pbsa_packages.clean_pdb import clean
+from auto4pbsa_packages.extract import extract
+from auto4pbsa_packages.parameter import parameter 
+from auto4pbsa_packages.gen_tleap import NO_WAT
+from auto4pbsa_packages.gen_min import *          #include min1(), min2(total_AA), min3 and detect(complex)
+from auto4pbsa_packages.entropy_cal import entropy_cal 
+
+#################################################################################################
+if os.path.isfile('mm_pbsa.err'):                        #clean the error log file
+	os.system('rm mm_pbsa.err')
+else:
+	pass
+
+
+#######1. To deal with the complex: generate a clean complex without water, non-standard amino acids. and a ligand mol2 file##############
+
+input = parameter()
+input.initial(sys.argv[1])
+complex = input.complex
+ligand_name = input.ligand_name
+clean(complex,ligand_name)      #import function to get ligand.mol2(with H) and complex.pdb
+
+
+
+#######2. generate the ligand prep and frcmod file -- ligand.prep & ligand.frcmod##########################################################
+
+os.system("antechamber -i ligand.mol2 -fi mol2 -o ligand.prep -fo prepi -c gas -nc $(printf '%.0f\n' $(sed -n '/@<TRIPOS>ATOM/,/@<TRIPOS>BOND/p' ./ligand.mol2|awk '/ / {sum += $NF};END {print sum}')) -pf Y")
+os.system('parmchk -i ligand.prep -f prepi -o ligand.frcmod')
+
+
+
+#######3. generate the top and crd file for complex receptor and ligand#####################################################################
+
+extract('complex.pdb',ligand_name,'./')     #import function to get rec.pdb and lig.pdb
+NO_WAT('complex.pdb','rec.pdb','lig.pdb','tleap.in','./')  #import function to generate the tleap.in file
+os.system('tleap -f tleap.in')       #execute the amber16 command to generate the tleap.in file complex.top, complex.crd, receptor.top, receptor.crd
+os.system('ambpdb -p complex.top -c complex.crd > complex_start.pdb -aatm')
+
+
+
+#######4. Minimazation for the complex######################################################################################################
+
+mini_option = input.minimazation
+output_dir = input.directory
+if os.path.isdir(output_dir):
+	pass
+else:
+	os.system('mkdir -p {dir}'.format(dir=output_dir))
+
+if mini_option == 'YES':
+	AA = detect('complex_start.pdb')  #AA is the total residue number
+	min1()
+	min2(AA)                 #generate minimazation input file
+	min3()
+	os.system('mpirun -np 4 sander.MPI -O -i min1.in -o min1.out -p complex.top -c complex.crd -r min1.rst -ref complex.crd') #Movements was allowed only for the water molecules, ions and Hydrogens
+	os.system('mpirun -np 4 sander.MPI -O -i min2.in -o min2.out -p complex.top -c min1.rst -r min2.rst -ref min1.rst') #The backbone atoms were fixed, and other atoms were allowed to move
+	os.system('mpirun -np 4 sander.MPI -O -i min3.in -o min3.out -p complex.top -c min2.rst -r min3.rst -ref min2.rst') #Minimaze all atoms
+	os.system('ambpdb -p complex.top -c min3.rst > complex_mini.pdb -aatm')
+	extract('complex_mini.pdb',ligand_name,output_dir)   #get the minimazation pdb of ligand, receptor and complex
+	os.system('cp complex_mini.pdb {dir}/com.pdb'.format(dir=output_dir))
+	NO_WAT('com.pdb','rec.pdb','lig.pdb','tleap2.in',output_dir) #write new tleap file
+	os.system('tleap -f tleap2.in')  #generate new top and crd file 
+else:
+	os.system('cp complex.crd receptor.crd ligand.crd {dir}'.format(dir=output_dir))
+
+os.system('cp {dir}/complex.crd {dir}/delta_E_com.crd.1'.format(dir=output_dir))
+os.system('cp {dir}/receptor.crd {dir}/delta_E_rec.crd.1'.format(dir=output_dir))
+os.system('cp {dir}/ligand.crd {dir}/delta_E_lig.crd.1'.format(dir=output_dir))
+
+
+
+######5. Perform the mm_pbsa calculation############################################
+
+pbsa_in = input.mm_pbsa
+f14 = open(pbsa_in,'r')
+f15 = open('./mm_pbsa.in','w+')
+for line in f14.readlines():
+        if line.startswith('PATH'):
+                line='PATH'+'                  '+output_dir+'\n'
+                f15.write(line)
+        elif line.startswith('COMPT'):
+                line='COMPT'+'                 '+output_dir+'complex.top\n'
+                f15.write(line)
+        elif line.startswith('RECPT'):
+                line='RECPT'+'                 '+output_dir+'receptor.top\n'
+                f15.write(line)
+        elif line.startswith('LIGPT'):
+                line='LIGPT'+'                 '+output_dir+'ligand.top\n'
+                f15.write(line)
+        else:
+                f15.write(line)
+f14.close()
+f15.close()
+
+try:
+        os.system('mm_pbsa.pl mm_pbsa.in > mm_pbsa.log 2>>mm_pbsa.log') #execute the mm_pbsa calculation, this step may needs ~10mins
+        shutil.move('./delta_E_statistics.out','{dir}'.format(dir=output_dir))
+        os.system('mv delta_E_* {dir}'.format(dir=output_dir))
+except IOError:
+        try:
+                os.system('rm delta_E_*')
+                os.system('rm mm_pbsa.log')
+                os.system('mm_pbsa.pl mm_pbsa.in > mm_pbsa.log 2>>mm_pbsa.log')
+                shutil.move('./delta_E_statistics.out','{dir}'.format(dir=output_dir))
+                os.system('mv delta_E_* {dir}'.format(dir=output_dir))
+        except IOError:
+                f16=open(r'mm_pbsa.err','a')
+                f16.write("The mm_pbsa result of cann't be calculated\n")
+                f16.close()
+                os.system('mv delta_E_* {dir}'.format(dir=output_dir))
+
+
+
+######6.Perform the entropy calculation#############################################
+entr_location = input.entropy
+entropy_cal(entr_location,output_dir) #calculate the entropy result and get the final delta_G value
+
+
+
+##############################################################################################
+
+
+
+
+
+
+

@@ -1,0 +1,144 @@
+#!/usr/bin/perl -w
+use strict;
+use DBI;
+my $dsn = "DBI:mysql:ReverseDock:10.10.1.241:3306";	#两种情况都可以连接
+my $user = 'lcz';
+my $password = 'LCZ10044036LCZ';
+
+my $USAGE = "usage:\n\t $0 <pdbID>\n";
+defined $ARGV[0] or die $USAGE;
+my $dbh = DBI->connect($dsn,$user,$password)or die "Fail to connect to MySQL: ".DBI->errstr;#连接数据库
+
+#do_fpocket($ARGV[0]);
+my $desc = getDescrip($ARGV[0]);
+exit unless defined $desc;
+my $len = scalar(@{$desc});
+$len = $len > 10 ? 10 : $len;
+my $sql = "INSERT INTO NODrugPocket VALUES";
+my @dataset;
+for(my $i=1; $i < $len; ++ $i)
+{
+	print scalar(@{$desc->[$i]})."\t@{$desc->[$i]}\n";
+	my $data = join(',',@{$desc->[$i]});
+	$data = "('$ARGV[0]','\@\@$i'," . $data . ")";
+	push(@dataset,$data);
+}
+$sql .= join(',',@dataset).";";
+#print $sql."\n";
+$dbh->do($sql);
+#my $cords = getCord($ARGV[0]);
+
+$dbh->disconnect;                                #断开
+#===============================================================
+sub do_fpocket{
+	my ($pdb) = @_;
+	delZero($pdb) or print STDERR "No sunch file $pdb\n" and return undef;
+	#unlink glob "$pdb\_out/*";
+	#rmdir "$pdb\_out";
+	`fpocket -f $pdb >/dev/null`;
+}
+
+sub getDescrip{
+	my ($pdb) = @_;
+	stat "$pdb\_out" or die "Directory $pdb\_out cannot find\n";
+	delZero("$pdb\_out/$pdb\_info.txt") or print STDERR "No such file $pdb\_out/$pdb\_info.txt\n" and return undef;
+	open(INFO,"<$pdb\_out/$pdb\_info.txt") ;
+	my @infos = <INFO>;
+	close INFO;
+	#unlink glob "$pdb\_out/pockets/*";
+	my $rs = [];
+	my $idx = 0;
+	foreach my $line(@infos){
+		if($line =~ /^Pocket (\d{1,2})/o){
+			$idx = int(0 + $1);
+			my @pock;
+			$rs->[$idx] = \@pock;
+		}elsif($line =~ /^\tScore :\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tDruggability Score :\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tNumber of Alpha Spheres :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tTotal SASA :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tPolar SASA :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tApolar SASA :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tVolume :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tMean local hydrophobic density :\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tMean alpha sphere radius :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tMean alp. sph. solvent access :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tApolar alpha sphere proportion :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tHydrophobicity score:\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tVolume score:\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tPolarity score:\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tCharge score :\s+?(-?\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tProportion of polar atoms:\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tAlpha sphere density :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tCent. of mass - Alpha Sphere max dist:\s+?(\d+(\.\d+)?)/o){
+				push @{$rs->[$idx]},$1;
+		}elsif($line =~ /^\tFlexibility :\s+?(\d+(\.\d+)?)/o){
+			push @{$rs->[$idx]},$1;
+		}
+	}
+	return $rs;
+}
+sub getCord{
+	my ($pdb) = @_;
+	delZero("$pdb\_out/$pdb\_pockets.pqr") or print STDERR "No sunch file $pdb\_out/$pdb\_pockets.pqr\n" and return undef;
+	open(POCK,"<$pdb\_out/$pdb\_pockets.pqr");
+	my @pocks = <POCK>;
+	close POCK;
+	#unlink glob "$pdb\_out/*";
+	my $idx = 0;
+	my $rs = [];
+	foreach my $line(@pocks){
+		if($line =~ /^ATOM.{20}( \d|\d{2}).{4}(.{8})(.{8})(.{8})/o){	
+			my $jdx = int(0 + $1);
+			if($jdx > $idx){
+				$idx = $jdx;
+				my (@x,@y,@z);
+				my $cord = {'x'=>\@x,'y'=>\@y,'z'=>\@z};
+				$rs->[$idx] = $cord;
+			}
+			push(@{$rs->[$idx]->{x} },0.0+$2);
+			push(@{$rs->[$idx]->{y} },0.0+$3);
+			push(@{$rs->[$idx]->{z} },0.0+$4);
+		}
+	}
+	return $rs;
+}
+
+sub calBox{
+	my ($rx,$ry,$rz) = @_;
+	my @x = @{$rx};
+	my @y = @{$ry};
+	my @z = @{$rz};
+	return undef if(!defined $x[0] );
+	@x=sort{$a<=>$b}@x;
+	@y=sort{$a<=>$b}@y;
+	@z=sort{$a<=>$b}@z;
+	#@box=($x[0],$x[$#x],$y[0],$y[$#y],$z[0],$z[$#z]);
+	print "$x[0]\t$x[$#x]\t$y[0]\t$y[$#y]\t$z[0]\t$z[$#z]\n";
+	#return \@box;
+}
+
+sub delZero{
+	my ($file) = @_;
+	return undef unless stat($file);
+	my @info=stat($file);
+	unlink $file if(0 == $info[7]);
+	return $info[7];
+}

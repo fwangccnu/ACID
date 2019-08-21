@@ -1,0 +1,30 @@
+#!/bin/csh
+
+
+set i=1
+echo   Receptor              Ligand         Complex        Conf>ds.out
+echo surf polar_ratio  surf polar_ratio  surf polar_ratio  Dnrb>>ds.out
+while ( $i < 2 )
+if ( -e com.pdb ) rm  com.pdb
+if ( -e rec.pdb ) rm  rec.pdb
+if ( -e lig.pdb ) rm  lig.pdb
+
+ambpdb -p ./complex.top -pqr <./delta_E_com.crd.$i >com.pdb
+ambpdb -p ./receptor.top -pqr <./delta_E_rec.crd.$i >rec.pdb
+ambpdb -p ./ligand.top -pqr <./delta_E_lig.crd.$i >lig.pdb
+./molsurf  rec.pdb 1.4 | grep "surface area =" | awk ' { printf " %10.3f ", $4 }'>>ds.out
+./surf rec.pdb 50 | grep ratio | awk '{ printf "%10.7f ", $6 }'>>ds.out
+
+./molsurf lig.pdb 1.4 | grep "surface area =" | awk ' { printf " %10.3f ", $4 }'>>ds.out
+./surf lig.pdb 50 | grep ratio | awk '{ printf "%10.7f ", $6 }'>>ds.out
+
+./molsurf  com.pdb 1.4 | grep "surface area =" | awk ' { printf " %10.3f ", $4 }'>>ds.out
+./surf com.pdb 50 | grep ratio | awk '{ printf "%10.7f ", $6 }'>>ds.out
+./conf -f files.in  -pdb com.pdb -top ./complex.top -d 5 |tail -1 |awk '{ print $6-$5-$4}'>>ds.out
+
+@ i += 1 
+end
+
+cp ds.out ds.out.bak
+
+

@@ -1,0 +1,65 @@
+#! /usr/bin/perl -w
+use strict;
+BEGIN{push(@INC,"$ENV{HOME}/bin/")};	#设置perl环境@INC
+use Paralell;
+use ReverseDock;
+
+my $cnode = getNode();
+print $cnode."\n";
+my ($job_id,$lig,$target_sets,$email,$passwd) = checkArg();
+my ($date,$time) = Paralell::getDateTime();
+#===进入工作环境============================
+# mkdir $date if(!stat($date));
+# chdir $date;
+# mkdir $time if(!stat($time));
+# chdir $time;
+# link "../../$lig.mol2", "$lig.mol2";
+# link "../../$lig.pdbqt", "$lig.pdbqt";
+#===================================
+
+
+my $PREFIX = " -v job_id=$job_id,lig=$lig,targs='$target_sets',date=$date,time=$time "." -l nodes=$cnode:ppn=32 -N RevDock_$lig ";
+
+my $obj = Paralell->new($lig,$job_id,$date,$time,$target_sets);
+defined $obj or die "Fail to Create Obj";
+
+$obj->enQue($email,$passwd,"$cnode");
+`qsub $PREFIX  -e $lig.e -o $lig.o /yp_home/licz/bin/pReverseDock.pl`;
+exit(0);
+
+#===sub routine==============================================================
+sub checkArg{
+	my $job_id = $ARGV[0];
+	my $lig_name=$ARGV[1];
+	my $target_sets=$ARGV[2];
+	my $email=$ARGV[3];
+	my $passwd = $ARGV[4];
+	my $USG = "Usage:\n\t$0 <job_id> <lig_name> <target_sets> [e-mail passwd]\n";
+	
+	defined($job_id) or die $USG;		#必须指定变量 $lig_name
+	defined($lig_name) or die $USG;		#必须指定变量 $lig_name
+	defined($target_sets) or die $USG;	#必须指定变量 $target_sets
+	ReverseDock::checkOrganic("$lig_name.mol2",600) or die $USG;
+	ReverseDock::checkOrganic("$lig_name.pdbqt",300) or die $USG;
+	
+	$email = defined($email) ? $email : 'XXXX@YYY.com';
+	
+	return ($job_id,$lig_name,$target_sets,$email,$passwd);
+}
+
+sub getNode{
+	my @nodes=`pbsnodes |awk -F " = " '{if(\$1~/^cnode1[345678]|^cnode20/){idx=NR;node=\$1};if(\$1~/ +state/ && \$2=="free" && NR==idx+1)print node}'`;
+	my $cnode;
+	if($#nodes >= 0){
+		chomp $nodes[0];
+		$cnode = $nodes[0];
+	}else{
+		#print "no free node found,still continue? Y or N\n###: ";
+		#my $Y_N = <STDIN>;
+		#chomp $Y_N;
+		#die "you choose to stop!\n" unless (defined $Y_N and $Y_N eq 'Y');
+		my $n = Paralell::Random(13,18);	#随机产生[13,18]之间的整数
+		$cnode = "cnode$n";
+	}
+	return $cnode;
+}
